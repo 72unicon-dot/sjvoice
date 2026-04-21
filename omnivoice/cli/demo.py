@@ -26,6 +26,8 @@ Usage:
 import argparse
 import logging
 from typing import Any, Dict
+import tempfile
+import os
 
 import gradio as gr
 import numpy as np
@@ -164,6 +166,7 @@ def build_demo(
         text,
         language,
         ref_audio,
+        prompt_file,
         instruct,
         num_step,
         guidance_scale,
@@ -197,13 +200,28 @@ def build_demo(
         if duration is not None and float(duration) > 0:
             kw["duration"] = float(duration)
 
+        prompt_out_path = None
         if mode == "clone":
-            if not ref_audio:
-                return None, "Please upload a reference audio."
-            kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
-                ref_audio=ref_audio,
-                ref_text=ref_text,
-            )
+            if prompt_file is not None:
+                try:
+                    kw["voice_clone_prompt"] = torch.load(prompt_file.name, map_location="cpu", weights_only=False)
+                except Exception as e:
+                    return None, None, f"Failed to load prompt file: {e}"
+            else:
+                if not ref_audio:
+                    return None, None, "Please upload a reference audio or a saved prompt file."
+                kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
+                    ref_audio=ref_audio,
+                    ref_text=ref_text,
+                )
+            
+            # Save the prompt for user to download
+            try:
+                temp_dir = tempfile.gettempdir()
+                prompt_out_path = os.path.join(temp_dir, "voice_prompt.pt")
+                torch.save(kw["voice_clone_prompt"], prompt_out_path)
+            except Exception as e:
+                logging.warning(f"Failed to save voice prompt: {e}")
 
         if instruct and instruct.strip():
             kw["instruct"] = instruct.strip()
@@ -211,9 +229,13 @@ def build_demo(
         try:
             audio = model.generate(**kw)
         except Exception as e:
+            if mode == "clone":
+                return None, None, f"Error: {type(e).__name__}: {e}"
             return None, f"Error: {type(e).__name__}: {e}"
 
         waveform = (audio[0] * 32767).astype(np.int16)
+        if mode == "clone":
+            return (sampling_rate, waveform), prompt_out_path, "Done."
         return (sampling_rate, waveform), "Done."
 
     # Allow external wrappers (e.g. spaces.GPU for ZeroGPU Spaces)
@@ -340,6 +362,10 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                             placeholder="Transcript of the reference audio. Leave empty"
                             " to auto-transcribe via ASR models.",
                         )
+                        vc_prompt_file = gr.File(
+                            label="Saved Voice Prompt / 저장된 음성 프롬프트 업로드 (.pt)", 
+                            file_types=[".pt"]
+                        )
                         vc_lang = _lang_dropdown("Language (optional) / 语种 (可选)")
                         with gr.Accordion("Instruct (optional)", open=False):
                             vc_instruct = gr.Textbox(label="Instruct", lines=2)
@@ -358,15 +384,20 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                             label="Output Audio / 合成结果",
                             type="numpy",
                         )
+                        vc_prompt_out = gr.File(
+                            label="Extracted Prompt / 추출된 프롬프트 다운로드 (.pt)", 
+                            interactive=False
+                        )
                         vc_status = gr.Textbox(label="Status / 状态", lines=2)
 
                 def _clone_fn(
-                    text, lang, ref_aud, ref_text, instruct, ns, gs, dn, sp, du, pp, po
+                    text, lang, ref_aud, prompt_file, ref_text, instruct, ns, gs, dn, sp, du, pp, po
                 ):
                     return _gen(
                         text,
                         lang,
                         ref_aud,
+                        prompt_file,
                         instruct,
                         ns,
                         gs,
@@ -385,6 +416,7 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         vc_text,
                         vc_lang,
                         vc_ref_audio,
+                        vc_prompt_file,
                         vc_ref_text,
                         vc_instruct,
                         vc_ns,
@@ -395,7 +427,7 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         vc_pp,
                         vc_po,
                     ],
-                    outputs=[vc_audio, vc_status],
+                    outputs=[vc_audio, vc_prompt_out, vc_status],
                 )
 
             # ==============================================================
@@ -466,6 +498,7 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                     return _gen(
                         text,
                         lang,
+                        None,
                         None,
                         _build_instruct(groups),
                         ns,
