@@ -105,7 +105,7 @@ def install_packages():
     print("[OmniVoice] Installing PyTorch (CUDA 12.8) - may take 10-20 min...")
     pip_run([
         "install",
-        "torch==2.8.0", "torchaudio==2.8.0",
+        "torch>=2.4", "torchaudio>=2.4",
         "--index-url", "https://download.pytorch.org/whl/cu128",
     ])
 
@@ -167,32 +167,37 @@ def main():
     print("  Venv dir :", VENV_DIR)
     print()
 
-    if not is_setup_complete() or args.reinstall:
-        system_python = find_system_python()
-        if system_python is None:
-            print("[ERROR] Python 3.10+ not found.")
-            print("        Install from https://www.python.org/downloads/")
-            pause()
-            return 1
-
-        print("[OmniVoice] Using system Python:", system_python)
-        create_venv(system_python)
-        install_packages()
-        print()
-
     try:
+        if not is_setup_complete() or args.reinstall:
+            system_python = find_system_python()
+            if system_python is None:
+                print("[ERROR] Python 3.10+ not found.")
+                print("        Install from https://www.python.org/downloads/")
+                pause()
+                return 1
+
+            print("[OmniVoice] Using system Python:", system_python)
+            create_venv(system_python)
+            install_packages()
+            print()
+
         rc = launch_demo(args)
+
     except KeyboardInterrupt:
         print("\n[OmniVoice] Stopped.")
         rc = 0
     except Exception as e:
-        print("\n[ERROR]", e)
-        pause()
+        import traceback
+        print("\n" + "=" * 60)
+        print("[ERROR] An error occurred:")
+        traceback.print_exc()
+        print("=" * 60)
+        pause("\nPress Enter to close...")
         rc = 1
 
-    if rc != 0:
+    if rc not in (0, None):
         pause("\n[OmniVoice] Exited with code " + str(rc) + ". Press Enter to close...")
-    return rc
+    return rc or 0
 
 
 if __name__ == "__main__":
