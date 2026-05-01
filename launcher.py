@@ -19,12 +19,35 @@ else:
     OMNIVOICE_SRC = BASE_DIR
 
 VENV_DIR = os.path.join(BASE_DIR, "omnivoice_env")
-# Written only after all packages install successfully
 INSTALL_MARKER = os.path.join(VENV_DIR, ".omnivoice_installed")
 
 
 def find_system_python():
-    for name in ["python", "python3", "py"]:
+    """Return a real Python 3.10+ interpreter, skipping Windows Store stubs."""
+    candidates = ["python", "python3", "py"]
+    for name in candidates:
+        path = shutil.which(name)
+        if not path:
+            continue
+        # Skip this launcher exe
+        if os.path.normcase(path) == os.path.normcase(sys.executable):
+            continue
+        # Skip Windows Store stub (it's an AppExecutionAlias, not a real interpreter)
+        if "WindowsApps" in path:
+            continue
+        try:
+            r = subprocess.run(
+                [path, "-c", "import sys; print(sys.version_info[:2])"],
+                capture_output=True, text=True, timeout=5
+            )
+            if r.returncode == 0 and eval(r.stdout.strip()) >= (3, 10):
+                return path
+        except Exception:
+            continue
+
+    # Second pass: allow WindowsApps path only if it actually responds
+    # (some systems only have the Store version installed for real)
+    for name in candidates:
         path = shutil.which(name)
         if not path:
             continue
@@ -39,6 +62,7 @@ def find_system_python():
                 return path
         except Exception:
             continue
+
     return None
 
 
@@ -48,14 +72,13 @@ def get_venv_python():
     return os.path.join(VENV_DIR, "bin", "python")
 
 
-def get_venv_pip():
-    if sys.platform == "win32":
-        return os.path.join(VENV_DIR, "Scripts", "pip.exe")
-    return os.path.join(VENV_DIR, "bin", "pip")
+def pip_run(args):
+    """Run pip via 'python -m pip' to avoid Windows Store pip.exe issues."""
+    python = get_venv_python()
+    subprocess.check_call([python, "-m", "pip"] + args)
 
 
 def is_setup_complete():
-    """True only when venv + all packages are installed (marker file present)."""
     return os.path.isfile(INSTALL_MARKER)
 
 
@@ -68,7 +91,7 @@ def pause(msg="Press Enter to close..."):
 
 def create_venv(system_python):
     if os.path.isdir(VENV_DIR):
-        print("[OmniVoice] Removing incomplete venv...")
+        print("[OmniVoice] Removing old/incomplete venv...")
         shutil.rmtree(VENV_DIR)
     print("[OmniVoice] Creating virtual environment at:", VENV_DIR)
     subprocess.check_call([system_python, "-m", "venv", VENV_DIR])
@@ -76,31 +99,29 @@ def create_venv(system_python):
 
 
 def install_packages():
-    pip = get_venv_pip()
     print("[OmniVoice] Upgrading pip...")
-    subprocess.check_call([pip, "install", "--upgrade", "pip"])
+    pip_run(["install", "--upgrade", "pip"])
 
-    print("[OmniVoice] Installing PyTorch (CUDA 11.8) - may take 10-20 min...")
-    subprocess.check_call([
-        pip, "install",
-        "torch==2.4.0", "torchaudio==2.4.0",
-        "--index-url", "https://download.pytorch.org/whl/cu118",
+    print("[OmniVoice] Installing PyTorch (CUDA 12.8) - may take 10-20 min...")
+    pip_run([
+        "install",
+        "torch==2.8.0", "torchaudio==2.8.0",
+        "--index-url", "https://download.pytorch.org/whl/cu128",
     ])
 
     print("[OmniVoice] Installing dependencies...")
-    subprocess.check_call([
-        pip, "install",
+    pip_run([
+        "install",
         "transformers>=5.3.0", "accelerate", "pydub", "gradio",
         "tensorboardX", "webdataset", "numpy", "soundfile", "librosa",
     ])
 
     if os.path.isfile(os.path.join(OMNIVOICE_SRC, "pyproject.toml")):
         print("[OmniVoice] Installing omnivoice from:", OMNIVOICE_SRC)
-        subprocess.check_call([pip, "install", "-e", OMNIVOICE_SRC])
+        pip_run(["install", "-e", OMNIVOICE_SRC])
     else:
         print("[WARNING] omnivoice source not found at:", OMNIVOICE_SRC)
 
-    # Write marker only after everything succeeded
     open(INSTALL_MARKER, "w").close()
     print("[OmniVoice] All packages installed successfully.")
 
@@ -149,7 +170,7 @@ def main():
     if not is_setup_complete() or args.reinstall:
         system_python = find_system_python()
         if system_python is None:
-            print("[ERROR] Python 3.10+ not found on this system.")
+            print("[ERROR] Python 3.10+ not found.")
             print("        Install from https://www.python.org/downloads/")
             pause()
             return 1
