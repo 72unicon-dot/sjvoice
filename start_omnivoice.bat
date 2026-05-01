@@ -52,3 +52,4 @@ echo.
 "%PYTHON%" -m omnivoice.cli.demo --model "%MODEL%" %2 %3 %4 %5
 
 if errorlevel 1 ( echo. & echo [ERROR] An error occurred. & pause )
+pause
