@@ -102,11 +102,11 @@ def install_packages():
     print("[OmniVoice] Upgrading pip...")
     pip_run(["install", "--upgrade", "pip"])
 
-    print("[OmniVoice] Installing PyTorch (CUDA 12.8) - may take 10-20 min...")
+    print("[OmniVoice] Installing PyTorch (CUDA 12.6) - may take 10-20 min...")
     pip_run([
         "install",
         "torch>=2.4", "torchaudio>=2.4",
-        "--index-url", "https://download.pytorch.org/whl/cu128",
+        "--index-url", "https://download.pytorch.org/whl/cu126",
     ])
 
     print("[OmniVoice] Installing dependencies...")
